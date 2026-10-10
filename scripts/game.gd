@@ -6,6 +6,7 @@ const StadiumScript = preload("res://scripts/stadium.gd")
 const HUDScript = preload("res://scripts/hud.gd")
 const BallScript = preload("res://scripts/ball.gd")
 const SoundScript = preload("res://scripts/sound.gd")
+const GamepadScript = preload("res://scripts/gamepad.gd")
 const SESSION_TIME := 90.0
 const GOAL_Z := -28.0
 const GOAL_HALF_WIDTH := 3.66
@@ -19,7 +20,7 @@ var testing := false
 var difficulty := 1
 var exercise := 0
 var defender_enabled := true
-var camera_mode := 0
+var camera_mode := 1
 var goals := 0
 var attempts := 0
 var passes_completed := 0
@@ -52,6 +53,7 @@ var ball
 var stadium
 var hud
 var sound
+var gamepad: GamepadScript
 var camera: Camera3D
 var aim_arrow: Node3D
 var trajectory: Array[MeshInstance3D] = []
@@ -108,7 +110,13 @@ func _ready() -> void:
 	hud.exercise_changed.connect(_change_exercise)
 	hud.quality_changed.connect(_change_quality)
 	hud.defender_changed.connect(func(enabled: bool): defender_enabled = enabled; _update_visibility())
-	_change_quality(1)
+	gamepad = GamepadScript.new()
+	gamepad.device_changed.connect(func(connected: bool, _device_name: String): hud.set_controller(gamepad.using_controller, connected))
+	gamepad.source_changed.connect(func(using_controller: bool): hud.set_controller(using_controller, gamepad.active_device >= 0))
+	gamepad.active_disconnected.connect(_controller_disconnected)
+	add_child(gamepad)
+	hud.set_controller(gamepad.using_controller, gamepad.active_device >= 0)
+	_change_quality(2)
 	_reset_positions()
 	_update_visibility()
 	ball.freeze = true
@@ -141,6 +149,25 @@ func _setup_input() -> void:
 	_action("pause", [KEY_ESCAPE], JOY_BUTTON_START)
 	_action("zoom_in", [], -1, MOUSE_BUTTON_WHEEL_UP)
 	_action("zoom_out", [], -1, MOUSE_BUTTON_WHEEL_DOWN)
+	_action("controls", [KEY_F1], JOY_BUTTON_BACK)
+	for mapping in [["camera", JOY_BUTTON_LEFT_SHOULDER], ["zoom_in", JOY_BUTTON_DPAD_UP], ["zoom_out", JOY_BUTTON_DPAD_DOWN]]:
+		var event := InputEventJoypadButton.new()
+		event.device = -1
+		event.button_index = mapping[1]
+		InputMap.action_add_event(mapping[0], event)
+	# Built-in UI defaults can be limited to device 0; accept every mapped pad.
+	for mapping in [["ui_accept", JOY_BUTTON_A], ["ui_cancel", JOY_BUTTON_B], ["ui_up", JOY_BUTTON_DPAD_UP], ["ui_down", JOY_BUTTON_DPAD_DOWN], ["ui_left", JOY_BUTTON_DPAD_LEFT], ["ui_right", JOY_BUTTON_DPAD_RIGHT]]:
+		var event := InputEventJoypadButton.new()
+		event.device = -1
+		event.button_index = mapping[1]
+		InputMap.action_add_event(mapping[0], event)
+	for mapping in [["ui_up", JOY_AXIS_LEFT_Y, -1.0], ["ui_down", JOY_AXIS_LEFT_Y, 1.0], ["ui_left", JOY_AXIS_LEFT_X, -1.0], ["ui_right", JOY_AXIS_LEFT_X, 1.0]]:
+		var event := InputEventJoypadMotion.new()
+		event.device = -1
+		event.axis = mapping[1]
+		event.axis_value = mapping[2]
+		InputMap.action_add_event(mapping[0], event)
+
 
 func _action(action: String, keys: Array, joy_button: int = -1, mouse_button: int = -1) -> void:
 	if InputMap.has_action(action):
@@ -152,6 +179,7 @@ func _action(action: String, keys: Array, joy_button: int = -1, mouse_button: in
 		InputMap.action_add_event(action, event)
 	if joy_button >= 0:
 		var event := InputEventJoypadButton.new()
+		event.device = -1
 		event.button_index = joy_button
 		InputMap.action_add_event(action, event)
 	if mouse_button >= 0:
@@ -217,6 +245,7 @@ func pause_game() -> void:
 	if state != State.PLAYING:
 		return
 	state = State.PAUSED
+	gamepad.stop_vibration()
 	charging = false
 	shot_charge = 0.0
 	get_tree().paused = true
@@ -241,7 +270,26 @@ func return_to_menu() -> void:
 	ball.freeze = true
 	hud.show_menu()
 
+func _controller_disconnected() -> void:
+	if state == State.PLAYING:
+		pause_game()
+	hud.toast("Controle desconectado. Reconecte ou use o teclado.", 4.0)
+
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("controls"):
+		if state == State.PLAYING:
+			pause_game()
+		if state == State.PAUSED:
+			hud.toast("Os comandos completos estão no painel de pausa.", 3.0)
+		get_viewport().set_input_as_handled()
+		return
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_B and state in [State.PAUSED, State.FINISHED]:
+		if state == State.PAUSED:
+			resume_game()
+		else:
+			return_to_menu()
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("pause") and not event.is_echo():
 		if state == State.PAUSED:
 			resume_game()
@@ -322,11 +370,9 @@ func _process(delta: float) -> void:
 
 func _move_player(delta: float) -> void:
 	var stick := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	var joystick := _joystick()
-	if joystick >= 0:
-		var pad := Vector2(Input.get_joy_axis(joystick, JOY_AXIS_LEFT_X), Input.get_joy_axis(joystick, JOY_AXIS_LEFT_Y))
-		if pad.length() > 0.18:
-			stick = pad.limit_length()
+	var pad := gamepad.stick()
+	if gamepad.using_controller:
+		stick = pad
 	var forward := -camera.global_basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
@@ -334,7 +380,9 @@ func _move_player(delta: float) -> void:
 	right.y = 0.0
 	right = right.normalized()
 	move_direction = (right * stick.x + forward * -stick.y).limit_length()
-	var speed := 8.0 if Input.is_action_pressed("sprint") else 5.4
+	var speed := 8.0 if Input.is_action_pressed("sprint") or gamepad.sprinting() else 5.4
+	if gamepad.precision():
+		speed = 3.2
 	if charging:
 		speed *= 0.5
 	player.move_toward_direction(move_direction, speed, delta)
@@ -345,16 +393,14 @@ func _move_player(delta: float) -> void:
 		player.face_direction(aim_direction, delta)
 
 func _update_aim() -> void:
-	var joystick := _joystick()
-	if joystick >= 0:
-		var pad := Vector2(Input.get_joy_axis(joystick, JOY_AXIS_RIGHT_X), Input.get_joy_axis(joystick, JOY_AXIS_RIGHT_Y))
-		if pad.length() > 0.2:
-			var forward := -camera.global_basis.z
-			forward.y = 0.0
-			aim_direction = (camera.global_basis.x * pad.x + forward.normalized() * -pad.y).normalized()
-			aim_direction.y = 0.0
-			mouse_aim = false
-			return
+	var pad := gamepad.stick(true)
+	if pad.length() > 0.05:
+		var forward := -camera.global_basis.z
+		forward.y = 0.0
+		aim_direction = (camera.global_basis.x * pad.x + forward.normalized() * -pad.y).normalized()
+		aim_direction.y = 0.0
+		mouse_aim = false
+		return
 	if mouse_aim:
 		var mouse := get_viewport().get_mouse_position()
 		var point: Variant = Plane(Vector3.UP, 0.22).intersects_ray(camera.project_ray_origin(mouse), camera.project_ray_normal(mouse))
@@ -365,10 +411,6 @@ func _update_aim() -> void:
 				aim_direction = direction.normalized()
 	elif move_direction.length_squared() > 0.04:
 		aim_direction = move_direction.normalized()
-
-func _joystick() -> int:
-	var devices := Input.get_connected_joypads()
-	return devices[0] if not devices.is_empty() else -1
 
 func _dribble() -> void:
 	if move_direction.length() < 0.1 or charging or kick_cooldown > 0.0 or dribble_cooldown > 0.0:
@@ -393,9 +435,10 @@ func shoot_ball(power: float) -> bool:
 			hud.toast("Aproxime-se da bola para chutar", 1.4)
 		return false
 	var charge := clampf(power, 0.0, 1.0)
-	ball.launch(aim_direction, lerpf(12.0, 29.0, charge), lerpf(1.8, 6.4, charge), "player")
+	ball.launch(aim_direction, lerpf(12.0, 29.0, charge), lerpf(0.65, 2.1, charge) if gamepad.precision() else lerpf(1.8, 6.4, charge), "player")
 	player.kick_animation()
 	sound.kick()
+	gamepad.vibrate(0.24, 0.42, 0.16)
 	attempts += 1
 	kick_cooldown = 0.65
 	dribble_cooldown = 0.65
@@ -521,6 +564,7 @@ func _check_goal() -> void:
 	if ball_scored or not is_goal_crossing(last_ball_position, ball.global_position):
 		return
 	ball_scored = true
+	gamepad.vibrate(0.55, 0.75, 0.4)
 	goals += 1
 	sound.goal()
 	hud.toast("GOOOOL!  •  %d" % goals, 2.4)
@@ -674,7 +718,8 @@ func _update_trajectory() -> void:
 		dot.visible = charging and can_touch_ball()
 		if dot.visible:
 			var time := (index + 1) * 0.09
-			var velocity := aim_direction * lerpf(12.0, 29.0, shot_charge) + Vector3.UP * lerpf(1.8, 6.4, shot_charge)
+			var lift := lerpf(0.65, 2.1, shot_charge) if gamepad.precision() else lerpf(1.8, 6.4, shot_charge)
+			var velocity := aim_direction * lerpf(12.0, 29.0, shot_charge) + Vector3.UP * lift
 			var predicted: Vector3 = ball.global_position + velocity * time + Vector3.DOWN * 4.9 * time * time
 			predicted.y = maxf(0.07, predicted.y)
 			dot.global_position = predicted

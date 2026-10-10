@@ -8,6 +8,7 @@ var sun: DirectionalLight3D
 var world_environment: WorldEnvironment
 var floodlights: Array[SpotLight3D] = []
 var crowd_nodes: Array[MultiMeshInstance3D] = []
+var grass_blades: MultiMeshInstance3D
 var quality: int = 2
 var _materials: Dictionary = {}
 var _rng := RandomNumberGenerator.new()
@@ -34,12 +35,14 @@ func set_quality(index: int) -> void:
 		light.visible = quality > 0
 	for audience: MultiMeshInstance3D in crowd_nodes:
 		audience.visible = quality > 0
+	if is_instance_valid(grass_blades):
+		grass_blades.visible = quality > 0
 	var env: Environment = world_environment.environment
 	var modern_renderer: bool = RenderingServer.get_current_rendering_method() != "gl_compatibility"
 	if modern_renderer:
 		env.ssao_enabled = quality == 2
-		env.glow_enabled = quality == 2
-		env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+		env.glow_enabled = false
+		env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	else:
 		env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 
@@ -80,33 +83,32 @@ func _build_environment() -> void:
 	world_environment = WorldEnvironment.new()
 	var env := Environment.new()
 	var sky := Sky.new()
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.045, 0.13, 0.27)
-	sky_mat.sky_horizon_color = Color(0.89, 0.58, 0.37)
-	sky_mat.ground_bottom_color = Color(0.06, 0.095, 0.11)
-	sky_mat.ground_horizon_color = Color(0.57, 0.40, 0.27)
-	sky_mat.sky_curve = 0.35
-	sky_mat.ground_curve = 0.12
-	sky_mat.sun_angle_max = 2.0
+	var sky_mat := ShaderMaterial.new()
+	sky_mat.shader = preload("res://shaders/evening_sky.gdshader")
+	sky_mat.set_shader_parameter("panorama", preload("res://assets/environment/blouberg_sunrise_2_1k.hdr"))
 	sky.sky_material = sky_mat
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_color = Color(0.63, 0.75, 0.85)
-	env.ambient_light_energy = 0.68
+	env.ambient_light_energy = 0.48
+	env.ambient_light_sky_contribution = 0.78
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.48, 0.56, 0.59)
 	env.fog_light_energy = 0.5
 	env.fog_density = 0.0017
 	env.fog_sky_affect = 0.02
+	env.ssao_radius = 1.3
+	env.ssao_intensity = 1.15
+	env.ssao_light_affect = 0.18
 	world_environment.environment = env
 	add_child(world_environment)
 	sun = DirectionalLight3D.new()
 	sun.name = "WarmEveningSun"
 	sun.rotation_degrees = Vector3(-28.0, -38.0, 0.0)
 	sun.light_color = Color(1.0, 0.78, 0.55)
-	sun.light_energy = 1.25
+	sun.light_energy = 0.9
 	sun.directional_shadow_max_distance = 115.0
 	sun.shadow_bias = 0.035
 	sun.shadow_normal_bias = 1.0
@@ -176,6 +178,7 @@ func _build_pitch() -> void:
 	material.shader = load("res://shaders/grass.gdshader") as Shader
 	turf.material_override = material
 	add_child(turf)
+	_build_grass_blades()
 	# The turf's physical surface is exactly y=0.
 	_static_box(Vector3(0.0, -0.10, 0.0), Vector3(42.0, 0.2, 66.0))
 	_rect_lines(Vector2.ZERO, Vector2(36.0, 56.0))
@@ -483,3 +486,38 @@ func _build_details() -> void:
 		node.position = Vector3(-19.4, 0.185, -5.5 + float(i) * 0.5)
 		add_child(node)
 		_box(node.position + Vector3(0.0, -0.16, 0.0), Vector3(0.32, 0.04, 0.32), _mat("orange"))
+
+func _build_grass_blades() -> void:
+	# One draw call, 56k crossed tufts. Far blades shrink to avoid aliasing.
+	var tool := SurfaceTool.new()
+	tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for angle: float in [0.0, PI * 0.5]:
+		var basis := Basis(Vector3.UP, angle)
+		for vertex: Vector3 in [Vector3(-0.012, 0, 0), Vector3(0.004, 0.035, 0), Vector3(0.012, 0, 0)]:
+			tool.set_uv(Vector2(0.0, 1.0 if vertex.y > 0.0 else 0.0))
+			tool.set_normal(basis * Vector3.FORWARD)
+			tool.add_vertex(basis * vertex)
+	var mesh := tool.commit()
+	var material := ShaderMaterial.new()
+	material.shader = preload("res://shaders/blades.gdshader")
+	mesh.surface_set_material(0, material)
+	var instances := MultiMesh.new()
+	instances.transform_format = MultiMesh.TRANSFORM_3D
+	instances.use_colors = true
+	instances.mesh = mesh
+	instances.instance_count = 56000
+	for index in instances.instance_count:
+		var p := Vector3(_rng.randf_range(-17.85, 17.85), 0.001, _rng.randf_range(-27.85, 27.85))
+		# No blades on painted halfway line, penalty-box markings or center ring.
+		var on_paint := absf(p.z) < 0.09 or absf(p.length() - 5.3) < 0.09
+		on_paint = on_paint or (absf(absf(p.x) - 11.0) < 0.09 and absf(p.z) > 19.0)
+		on_paint = on_paint or (absf(absf(p.z) - 19.0) < 0.09 and absf(p.x) < 11.0)
+		var size := 0.02 if on_paint else _rng.randf_range(0.55, 1.0)
+		instances.set_instance_transform(index, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3.ONE * size), p))
+		var variation := _rng.randf_range(0.78, 1.13)
+		instances.set_instance_color(index, Color(variation, variation, variation, 1.0))
+	grass_blades = MultiMeshInstance3D.new()
+	grass_blades.name = "LivingGrass"
+	grass_blades.multimesh = instances
+	grass_blades.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(grass_blades)

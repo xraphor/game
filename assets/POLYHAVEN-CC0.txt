@@ -1,0 +1,20 @@
+Asset: Blouberg Sunrise 2 (blouberg_sunrise_2_1k.hdr)
+Creator: Greg Zaal, HDRI Haven / Poly Haven
+Asset page: https://polyhaven.com/a/blouberg_sunrise_2
+Downloaded unchanged from the Three.js example asset mirror:
+https://github.com/mrdoob/three.js/blob/dev/examples/textures/equirectangular/blouberg_sunrise_2_1k.hdr
+
+License: Creative Commons CC0 1.0 Universal.
+https://creativecommons.org/publicdomain/zero/1.0/
+https://polyhaven.com/license
+
+Poly Haven's published asset license states:
+"Our assets are all licensed as CC0, which is effectively Public Domain
+ even in jurisdictions that do not support the Public Domain."
+"You can use our assets for any purpose, including commercial work."
+"You can redistribute them, share them around, include them when sharing
+ your own work, or even in a product you sell."
+
+License wording verified in the official website repository:
+https://github.com/Poly-Haven/polyhaven.com/blob/master/public/locales/en/license.json
+Full CC0 legal text is included alongside this notice in MAKEHUMAN-CC0.md.

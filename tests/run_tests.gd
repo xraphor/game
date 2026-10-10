@@ -26,6 +26,7 @@ func _run() -> void:
 	await _frames(3)
 	_check(game.state == game.State.PLAYING and not game.ball.freeze, "Menu start button opens a live session")
 
+	_athlete_rig()
 	await _ball_physics()
 	await _movement_and_input()
 	await _shots_and_pass_cooldowns()
@@ -36,6 +37,7 @@ func _run() -> void:
 	await _cone_exercise()
 	await _reset_pause_and_menu()
 	await _session_results()
+	await _gamepad_controls()
 	_quality_options()
 	_release_inputs()
 	paused = false
@@ -401,3 +403,114 @@ func _quality_options() -> void:
 		var expected_msaa: int = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X][index]
 		var crowd_visible: bool = game.stadium.crowd_nodes[0].visible
 		_check(game.stadium.quality == index and game.get_viewport().msaa_3d == expected_msaa and game.stadium.sun.shadow_enabled == (index > 0) and crowd_visible == (index > 0), "Quality option %d updates stadium and viewport settings" % index)
+
+
+func _pad_button(button: int, pressed_value: bool = true) -> void:
+	var event := InputEventJoypadButton.new()
+	event.device = 42
+	event.button_index = button
+	event.pressed = pressed_value
+	Input.parse_input_event(event)
+	await _frames(2)
+
+func _pad_tap(button: int) -> void:
+	await _pad_button(button)
+	await _pad_button(button, false)
+
+func _pad_axis(axis: int, value: float) -> void:
+	var event := InputEventJoypadMotion.new()
+	event.device = 42
+	event.axis = axis
+	event.axis_value = value
+	Input.parse_input_event(event)
+	await _frames(2)
+
+func _gamepad_controls() -> void:
+	print("CHECK: simulated Xbox connection and engine input events")
+	await _session(1)
+	game.return_to_menu()
+	Input.joy_connection_changed.emit(42, true)
+	await _frames(2)
+	_check(game.gamepad.active_device == 42 and game.hud._controller_status.text.contains("CONECTADO"), "Hotplug selects the controller and updates connection status")
+	await _pad_tap(JOY_BUTTON_DPAD_UP)
+	_check(root.gui_get_focus_owner() == game.hud._options[3], "Xbox D-pad moves menu focus from Start to the defender option")
+	await _pad_tap(JOY_BUTTON_DPAD_DOWN)
+	await _pad_tap(JOY_BUTTON_A)
+	_check(game.state == game.State.PLAYING and game.hud._charge_hint.text.begins_with("A"), "Xbox A starts from the focused menu and displays Xbox hints")
+	game._reset_positions()
+	await _pad_axis(JOY_AXIS_LEFT_X, 0.10)
+	await _pad_axis(JOY_AXIS_LEFT_Y, 0.10)
+	var initial: Vector3 = game.player.global_position
+	await _frames(12)
+	_check(Vector2(game.player.velocity.x, game.player.velocity.z).length() < 0.01 and Vector2(game.player.global_position.x - initial.x, game.player.global_position.z - initial.z).length() < 0.01, "Radial deadzone prevents analog drift")
+	await _pad_axis(JOY_AXIS_LEFT_Y, 0.0)
+	await _pad_axis(JOY_AXIS_LEFT_X, 0.55)
+	await _frames(15)
+	var half_speed: float = Vector2(game.player.velocity.x, game.player.velocity.z).length()
+	await _pad_axis(JOY_AXIS_LEFT_X, 1.0)
+	await _frames(15)
+	var full_speed: float = Vector2(game.player.velocity.x, game.player.velocity.z).length()
+	_check(half_speed > 1.0 and half_speed < full_speed * 0.7 and full_speed > 5.0, "Left stick supports proportional walking speed")
+	await _pad_axis(JOY_AXIS_TRIGGER_RIGHT, 1.0)
+	await _frames(15)
+	_check(Vector2(game.player.velocity.x, game.player.velocity.z).length() > full_speed * 1.3, "Xbox RT increases actual player speed")
+	await _pad_axis(JOY_AXIS_TRIGGER_RIGHT, 0.0)
+	await _pad_axis(JOY_AXIS_TRIGGER_LEFT, 1.0)
+	await _frames(15)
+	_check(Vector2(game.player.velocity.x, game.player.velocity.z).length() < 3.3, "Xbox LT enables controlled precision movement")
+	await _pad_axis(JOY_AXIS_TRIGGER_LEFT, 0.0)
+	await _pad_axis(JOY_AXIS_LEFT_X, 0.0)
+	await _pad_axis(JOY_AXIS_RIGHT_X, 1.0)
+	_check(absf(game.aim_direction.dot(game.camera.global_basis.x.normalized())) > 0.98 and not game.mouse_aim, "Right stick aims relative to the camera")
+	await _pad_axis(JOY_AXIS_RIGHT_X, 0.0)
+	await _pad_tap(JOY_BUTTON_Y)
+	_check(game.player.global_position.distance_to(Vector3(0, 0.04, 9)) < 0.15, "Xbox Y resets actual positions")
+	var attempts_before: int = game.attempts
+	await _pad_button(JOY_BUTTON_A)
+	await _frames(23)
+	_check(game.charging and game.shot_charge > 0.2 and game.attempts == attempts_before, "Holding Xbox A charges without premature shooting")
+	await _pad_button(JOY_BUTTON_A, false)
+	_check(not game.charging and game.attempts == attempts_before + 1 and game.ball.linear_velocity.length() > 10.0, "Releasing Xbox A launches exactly one shot")
+	await _pad_tap(JOY_BUTTON_Y)
+	await _pad_tap(JOY_BUTTON_X)
+	_check(game.ball.last_toucher == "player_pass", "Xbox X launches a pass")
+	var mode_before: int = game.camera_mode
+	await _pad_tap(JOY_BUTTON_LEFT_SHOULDER)
+	_check(game.camera_mode == (mode_before + 1) % 3, "Xbox LB switches camera")
+	var fov_before: float = game.camera.fov
+	await _pad_tap(JOY_BUTTON_DPAD_UP)
+	_check(game.camera.fov < fov_before, "Xbox D-pad zoom works during play")
+	await _pad_tap(JOY_BUTTON_START)
+	_check(game.state == game.State.PAUSED and paused and root.gui_get_focus_owner() == game.hud._resume_button, "Xbox Menu pauses and focuses Resume")
+	await _pad_tap(JOY_BUTTON_B)
+	_check(game.state == game.State.PLAYING and not paused, "Xbox B resumes from pause")
+	await _pad_tap(JOY_BUTTON_BACK)
+	_check(game.state == game.State.PAUSED and game.hud._pause_controls.text.contains("CONTROLE XBOX"), "Xbox View pauses with complete controller instructions")
+	await _pad_tap(JOY_BUTTON_A)
+	_check(game.state == game.State.PLAYING, "Xbox A confirms the focused Resume button")
+	Input.joy_connection_changed.emit(42, false)
+	await _frames(2)
+	_check(game.state == game.State.PAUSED and game.gamepad.active_device == -1 and game.hud._charge_hint.text.begins_with("ESPAÇO"), "Controller disconnection pauses gameplay and restores keyboard hints")
+	var clock: float = game.elapsed
+	await _frames(10)
+	_check(is_equal_approx(game.elapsed, clock), "Disconnected controller cannot consume session time")
+	Input.joy_connection_changed.emit(42, true)
+	await _pad_tap(JOY_BUTTON_A)
+	_check(game.state == game.State.PLAYING and game.gamepad.using_controller, "Reconnected controller can resume without restarting the game")
+	game._finish_session(true)
+	await _pad_tap(JOY_BUTTON_B)
+	_check(game.state == game.State.MENU and not paused, "Xbox B returns from the result screen to the main menu")
+	Input.joy_connection_changed.emit(42, false)
+	game.return_to_menu()
+
+
+func _athlete_rig() -> void:
+	game.player.reset_pose()
+	var skeleton: Skeleton3D = game.player._skeleton
+	skeleton.force_update_all_bone_transforms()
+	var head: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(skeleton.find_bone("Head")).origin
+	var left_foot: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(skeleton.find_bone("Foot.L")).origin
+	var shoulder: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(skeleton.find_bone("UpperArm.L")).origin
+	var hand: Vector3 = skeleton.global_transform * skeleton.get_bone_global_pose(skeleton.find_bone("Hand.L")).origin
+	_check(skeleton.get_bone_count() >= 18 and head.y > 1.55 and left_foot.y < 0.30, "Anatomical rig keeps the head above the body and feet near the turf", str(head, left_foot))
+	_check(hand.y < shoulder.y - 0.30, "Rest pose lowers the athlete's arms naturally", str(shoulder, hand))

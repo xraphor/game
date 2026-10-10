@@ -18,11 +18,13 @@ A primeira versão foi implementada em Godot: campo de treino de 36 × 56 metros
 
 Os cinco exercícios disponíveis são finalização, chutes livres com três alvos, três tabelas, condução por cinco portões e um contra um. As sessões duram até 90 segundos; finalização e um contra um têm meta de cinco gols. A reposição por R preserva tempo, placar e progresso; reiniciar pelo menu começa uma sessão nova.
 
-O estádio, os personagens, os materiais e os sons são originais e procedurais. O visual atual é 3D estilizado, com gramado detalhado, arquibancadas, traves/rede, iluminação e sombras, uniformes e personagens articulados. Há três câmeras e opções de qualidade baixa, média e alta. Ainda não representa o objetivo futuro de realismo fotorrealista ou acabamento AAA.
+O visual foi expandido com malha anatômica CC0 do MakeHuman e esqueleto de 18 ossos, uniformes com trama e dobras, bola original de 32 painéis com costuras, 56 mil lâminas de grama e iluminação/reflexos HDRI CC0 do Poly Haven. O renderizador Forward+ acrescenta oclusão ambiente e reflexos na qualidade alta, com fallback OpenGL para compatibilidade. Há três câmeras; a terceira pessoa é a inicial. A arena, o kit, a bola, a interface e os sons são originais. Ainda não tem acabamento fotorrealista ou AAA.
+
+Xbox suporta analógicos de movimento proporcional e mira, corrida em RT/RB, precisão/chute rasteiro em LT, chute carregado em A, passe em X, câmera em LB/B, reposição em Y, zoom pelo D-pad, menus com A/B e pausa por Menu. Há dicas dinâmicas, zona morta radial, vibração e pausa ao desconectar. A suíte tem 93 verificações, incluindo 22 de entrada Xbox simulada; controle físico e execução em Windows ainda precisam de teste local.
 
 Goleiro e defensor atualizam suas decisões a partir da bola observada em intervalos diferentes por dificuldade. O goleiro ajusta posicionamento e tenta defender; o defensor marca, pressiona, intercepta e recupera; o companheiro oferece apoio e devolve passes. O campo aberto usa deslocamento direto com colisões, sem uma malha de navegação para cenários complexos.
 
-As seções abaixo preservam a direção de longo prazo do pedido. Recursos não descritos como implementados nesta seção permanecem metas de expansão, incluindo suor/tecido com detalhamento realista, animações refinadas, controles de volume, partidas completas e demais efeitos.
+As seções abaixo preservam a direção de longo prazo do pedido. Recursos não descritos como implementados nesta seção permanecem metas de expansão, incluindo suor dinâmico, texturas de maior resolução, animações capturadas de movimento, controles de volume, partidas completas e demais efeitos.
 
 ## Primeira versão jogável
 Um campo de treinamento 3D com jogador controlável, bola física, gol, goleiro bot e um defensor bot. Implementar movimentação, corrida, condução, passe, chute com força variável, contagem de gols e reinício do exercício. Entregar instruções para abrir o projeto e jogar.

@@ -3,3 +3,7 @@ build/
 *.tmp
 *.log
 .DS_Store
+
+/downloads/*.import
+__pycache__/
+*.pyc

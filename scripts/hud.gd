@@ -38,6 +38,13 @@ var _toast_card: PanelContainer
 var _toast_text: Label
 var _toast_remaining := 0.0
 var _radar: FieldRadar
+var _menu_controls: Label
+var _game_controls: Label
+var _pause_hint: Label
+var _charge_hint: Label
+var _controller_status: Label
+var _pause_controls: Label
+var _options: Array[Control] = []
 var _display_font: FontVariation
 
 
@@ -210,6 +217,7 @@ func _option(title: String, choices: Array[String], selected: int, callback: Cal
 	column.add_theme_constant_override("separation", 5)
 	column.add_child(_label(title, 12, MUTED, true))
 	var option := OptionButton.new()
+	_options.append(option)
 	option.custom_minimum_size = Vector2(180.0, 42.0)
 	option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	option.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -247,7 +255,8 @@ func _build_menu() -> void:
 	brand.add_child(brand_words)
 	brand_words.add_child(_label("N U K E", 21, WHITE, true))
 	brand_words.add_child(_label("F O O T B A L L", 10, MUTED))
-	var status := _label("CAMPO DE TREINO   /   01", 12, WHITE)
+	var status := _label("TECLADO E MOUSE", 12, WHITE)
+	_controller_status = status
 	status.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	status.position = Vector2(-330.0, 51.0)
 	_menu.add_child(status)
@@ -268,11 +277,12 @@ func _build_menu() -> void:
 	_hero.add_child(options)
 	options.add_child(_option("EXERCÍCIO", ["Finalização", "Chutes livres", "Passes", "Cones", "1 contra 1"], 0, func(index: int): exercise_changed.emit(index)))
 	options.add_child(_option("DIFICULDADE", ["Fácil", "Médio", "Difícil"], 1, func(index: int): difficulty_changed.emit(index)))
-	options.add_child(_option("QUALIDADE VISUAL", ["Baixa", "Média", "Alta"], 1, func(index: int): quality_changed.emit(index)))
+	options.add_child(_option("QUALIDADE VISUAL", ["Baixa", "Média", "Alta"], 2, func(index: int): quality_changed.emit(index)))
 	var defender_column := VBoxContainer.new()
 	defender_column.add_theme_constant_override("separation", 5)
 	defender_column.add_child(_label("MARCAÇÃO", 12, MUTED, true))
 	var defender_toggle := CheckButton.new()
+	_options.append(defender_toggle)
 	defender_toggle.text = "Defensor em campo"
 	defender_toggle.button_pressed = true
 	defender_toggle.custom_minimum_size.y = 42
@@ -287,7 +297,15 @@ func _build_menu() -> void:
 	_start_button.custom_minimum_size.y = 58.0
 	_start_button.pressed.connect(func(): start_requested.emit())
 	_hero.add_child(_start_button)
-	_hero.add_child(_label("WASD  MOVER     /     MOUSE  MIRAR     /     ESPAÇO  CHUTAR", 10, MUTED))
+	_menu_controls = _label("", 10, MUTED)
+	_hero.add_child(_menu_controls)
+	_options.append(_start_button)
+	for index in _options.size():
+		var current := _options[index]
+		current.focus_neighbor_top = current.get_path_to(_options[posmod(index - 1, _options.size())])
+		current.focus_neighbor_bottom = current.get_path_to(_options[(index + 1) % _options.size()])
+		current.focus_next = current.focus_neighbor_bottom
+		current.focus_previous = current.focus_neighbor_top
 	_menu_bottom = _label("01  /  NUKE TRAINING GROUND\nFUTEBOL EM PRIMEIRO LUGAR.", 12, WHITE)
 	_menu_bottom.add_theme_constant_override("line_spacing", 5)
 	_menu.add_child(_menu_bottom)
@@ -321,6 +339,7 @@ func _build_game() -> void:
 	_add_separator(scores)
 	_time = _stat(scores, "TEMPO", "00:00", WHITE)
 	var pause_hint := _label("ESC  /  PAUSA", 12, WHITE)
+	_pause_hint = pause_hint
 	pause_hint.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	pause_hint.position = Vector2(-144.0, 35.0)
 	_game.add_child(pause_hint)
@@ -359,7 +378,8 @@ func _build_game() -> void:
 	_charge_bar.add_theme_stylebox_override("background", _box(Color("30413e"), Color.TRANSPARENT, 3, 0))
 	_charge_bar.add_theme_stylebox_override("fill", _box(LIME, Color.TRANSPARENT, 3, 0))
 	charge_column.add_child(_charge_bar)
-	charge_column.add_child(_label("ESPAÇO ou clique • segure e solte", 11, WHITE))
+	_charge_hint = _label("", 11, WHITE)
+	charge_column.add_child(_charge_hint)
 	var radar_card := _card(_game)
 	radar_card.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	radar_card.offset_left = -238.0
@@ -377,7 +397,8 @@ func _build_game() -> void:
 	_radar.custom_minimum_size = Vector2(170.0, 122.0)
 	_radar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	radar_column.add_child(_radar)
-	var instructions := _label("WASD  Mover     SHIFT  Correr     MOUSE  Mirar     E  Passe     C  Câmera     R  Repetir", 11, WHITE)
+	var instructions := _label("", 11, WHITE)
+	_game_controls = instructions
 	instructions.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	instructions.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	instructions.position = Vector2(-390.0, -27.0)
@@ -443,7 +464,14 @@ func _build_pause() -> void:
 	var menu_button := _button("VOLTAR AO MENU")
 	menu_button.pressed.connect(func(): menu_requested.emit())
 	column.add_child(menu_button)
-	column.add_child(_label("ESC  para continuar", 12, MUTED))
+	_pause_controls = _label("", 13, MUTED)
+	_pause_controls.add_theme_constant_override("line_spacing", 3)
+	column.add_child(_pause_controls)
+	var navigation: Array[Button] = [_resume_button, restart, menu_button]
+	for index in navigation.size():
+		var button := navigation[index]
+		button.focus_neighbor_top = button.get_path_to(navigation[posmod(index - 1, navigation.size())])
+		button.focus_neighbor_bottom = button.get_path_to(navigation[(index + 1) % navigation.size()])
 
 
 func _build_toast() -> void:
@@ -533,3 +561,29 @@ func update_minimap(player: Vector3, ball: Vector3, keeper: Vector3, defender: V
 	_radar.partner = partner
 	_radar.has_defender = defender_enabled
 	_radar.queue_redraw()
+
+
+func set_controller(using_controller: bool, connected: bool) -> void:
+	_controller_status.text = "XBOX / CONTROLE CONECTADO" if connected else "TECLADO E MOUSE"
+	if using_controller:
+		_menu_controls.text = "D-PAD  NAVEGAR     /     A  CONFIRMAR     /     B  VOLTAR"
+		_game_controls.text = "LS  Mover   RS  Mirar   RT/RB  Correr   LT  Precisão   X  Passe   LB/B  Câmera   Y  Repetir"
+		_charge_hint.text = "A • segure para carregar e solte"
+		_pause_hint.text = "MENU / PAUSA"
+		_pause_controls.text = "CONTROLE XBOX
+LS mover • RS mirar • RT/RB correr
+A segurar e soltar: chute • X passe
+LT precisão/chute rasteiro • Y repor bola
+LB/B câmera • ↑/↓ zoom • View ajuda
+D-pad navegar • A confirmar • B voltar"
+	else:
+		_menu_controls.text = "WASD  MOVER     /     MOUSE  MIRAR     /     ESPAÇO  CHUTAR"
+		_game_controls.text = "WASD  Mover   SHIFT  Correr   MOUSE  Mirar   E  Passe   C  Câmera   R  Repetir   F1  Ajuda"
+		_charge_hint.text = "ESPAÇO ou clique • segure e solte"
+		_pause_hint.text = "ESC / PAUSA"
+		_pause_controls.text = "WASD/setas mover • Shift correr • mouse mirar
+Espaço/clique: segurar e soltar para chutar
+E passe • C câmera • R repor bola
+Roda do mouse: zoom • Esc pausa
+Xbox: LS mover, RS mirar, A chute, X passe
+RT/RB correr • LT precisão • Menu pausa"
